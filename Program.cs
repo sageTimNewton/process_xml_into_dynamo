@@ -20,6 +20,9 @@ namespace process_xml_into_dynamo
             clientConfig = new AmazonDynamoDBConfig();
             // Set the endpoint URL
             clientConfig.ServiceURL = "http://localhost:8000";            
+            // AWS dynamo in London
+            //clientConfig.ServiceURL = "https://dynamodb.eu-west-2.amazonaws.com";
+
             client = new AmazonDynamoDBClient(clientConfig); 
 
             // get an item from a table 
@@ -33,12 +36,12 @@ namespace process_xml_into_dynamo
 
             // read xml from file below
 
-            foreach (var item in Directory.GetFiles("C:/temp/xml_de-ce"))
+            foreach (var item in Directory.GetFiles(@"C:/temp/xml_de-ce"))
             {                                            
                 //System.IO.FileStream file = System.IO.File.Create(path);  
                 Console.WriteLine($"loading file : {item}");
                 var ent = ReadXMLFile(item);
-                AddToDynamoDB(ent);
+                AddSoftwareToDynamoDB(ent);
             }
             
 
@@ -53,12 +56,14 @@ namespace process_xml_into_dynamo
             return ent;
         }
     
-        public static void AddToDynamoDB(Entitlement ent)
+        public static void AddFullEntitlementToDynamoDB(Entitlement ent)
         {
             Table table = Table.LoadTable(client, "Entitlement");
             var entitlement = new Document();
 
             // Set the attributes that you wish to update.
+            //             
+            
             entitlement["Tenant_Customer"] = $"DECE{ent.CustomerIdentifier}";
 
             System.Xml.Serialization.XmlSerializer writer =
@@ -74,11 +79,50 @@ namespace process_xml_into_dynamo
             entitlement["Entitlement"] = contents;
  
             // Add a new attribute.
-            entitlement["SoftwareSerialNumber"] = "xxxx";
+            entitlement["SerialNumber"] = "xxxx";
             // Delete the existing PageCount attribute.
             entitlement["BackOfficeTimeStamp"] = ent.BackOfficeTimestamp;
 
             var res = table.UpdateItemAsync(entitlement).Result;
+            
+            return;
+        }
+        
+        public static void AddSoftwareToDynamoDB(Entitlement ent)
+        {
+
+            foreach (EntitlementSoftware item in ent.Software)
+            {
+                Table table = Table.LoadTable(client, "Entitlement");
+                var entitlement = new Document();
+
+                // Set the attributes that you wish to update.
+                // german serial numbers are guids so contain hyphens
+                string Tenant = item.SoftwareSerialNumber.Contains("-") ? "DE" : "CE";
+                                
+                entitlement["Tenant_Customer"] = $"{Tenant}#{ent.CustomerIdentifier}";
+
+                // xml serialise
+                // System.Xml.Serialization.XmlSerializer writer =
+                //     new System.Xml.Serialization.XmlSerializer(typeof(EntitlementSoftware));  
+
+
+                MemoryStream stream = new MemoryStream();
+
+                writer.Serialize(stream,item);
+
+                var contents = Encoding.UTF8.GetString(stream.GetBuffer(), 0 , (int)stream.Length);
+
+                // Replace the authors attribute.
+                entitlement["Software"] = contents;
+    
+                // Add a new attribute.
+                entitlement["SerialNumber"] = item.SoftwareSerialNumber;
+                // Delete the existing PageCount attribute.
+                entitlement["BackOfficeTimeStamp"] = ent.BackOfficeTimestamp;
+
+                var res = table.UpdateItemAsync(entitlement).Result;
+            }
             
             return;
         }
